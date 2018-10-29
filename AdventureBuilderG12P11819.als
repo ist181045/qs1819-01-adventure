@@ -91,4 +91,4 @@ sig Invoice {
 }
 
 abstract sig PurchaseType {}
-one sig Leisure, Business {}
+one sig Leisure, Business extends PurchaseType {}
