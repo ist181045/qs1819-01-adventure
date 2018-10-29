@@ -81,7 +81,7 @@ sig Adventure {
 }
 
 abstract sig AdventureState {}
-one sig InitialState, PayedState, ConfirmedState {}
+one sig Initial, Payed, Confirmed extends AdventureState {}
 
 sig Invoice {
   client: one Client,
