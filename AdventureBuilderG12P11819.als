@@ -95,29 +95,60 @@ sig Account {
 //one sig Leisure, Business extends PurchaseType {}
 
 
-pred init[t: Time] {
-}
+// Operations ------------------------------------------------------------------
+// Auxiliary
 
-pred noOpenChangeExcept[t, t': Time] {
+pred noOpenChange[t, t': Time] {
   isOpen.t = isOpen.t'
 }
 
 pred noAccountChangeExcept[t, t': Time, acc: Account] {
-  all a: Account - acc | a in isOpen.t => a in isOpen.t'
+  all a: Account - acc | a in isOpen.t' iff a in isOpen.t
 }
+
+// Main Ops
 
 pred openAccount[t, t': Time, acc: Account, c: Client, b: Bank] {
   // pre cond
   acc not in isOpen.t // 1, 2
   // post cond
-  acc.balance.t' = 0
-  c = acc.client
-  b = acc.bank
+  c = acc.client // 3
+  b = acc.bank // 4
   acc in b.accounts
   acc in isOpen.t'
+  acc.balance.t' = 0
   // frame cond
   noAccountChangeExcept[t, t', acc]
 }
+
+// Asserts ---------------------------------------------------------------------
+
+assert canOpenAnyUnopenedAccount {
+  all t, t': Time | all acc: Account, c: Client, b: Bank |
+    lt[t, t'] && acc not in isOpen.t && openAccount[t, t', acc, c, b]
+}
+check canOpenAnyUnopenedAccount // 1
+
+assert cantOpenAccountAgain {
+  all t, t': Time | all c: Client, b: Bank | no acc: Account |
+    lt[t, t'] && acc in isOpen.t && openAccount[t, t', acc, c, b]
+}
+check cantOpenAccountAgain // 2
+
+assert eachAccountHasExactlyOneClient {
+  all t: Time, acc: Account |
+    acc in isOpen.t => one acc.client
+}
+check eachAccountHasExactlyOneClient // 3
+
+assert eachAccountHasExactlyOneBank {
+  all t: Time, acc: Account |
+    acc in isOpen.t => one acc.bank
+}
+check eachAccountHasExactlyOneBank // 4
+
+
+// Transitions -----------------------------------------------------------------
 
 fact trans {
   init [T /first]
@@ -127,4 +158,6 @@ fact trans {
   }
 }
 
-run {} for 4
+pred init[t: Time] {
+  no isOpen.t
+}
