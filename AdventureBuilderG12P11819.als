@@ -146,6 +146,7 @@ pred clientDeposit[t, t': Time, acc: Account, amt: Int] {
 // Asserts ---------------------------------------------------------------------
 // openAccount
 assert canOpenAnyUnopenedAccount {
+  // FIXME: Either assertion is wrong (99%) or predicate is wrong (do maths)
   all t, t': Time, cli: Client, bk: Bank | all acc: Account |
     not accountIsOpen[t, acc] && openAccount[t, t', acc, cli, bk]
 }
