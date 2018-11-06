@@ -45,23 +45,23 @@ sig Account {
 //  departure: one Date
 //}
 //
-//
-//sig ActivityProvider {
-//  activites: set Activity
-//}
-//
-//sig Activity {
-//  provider: one ActivityProvider,
-//  capacity: one Int
-//}
-//
-//sig ActivityOffer {
-//  activity: one Activity,
-//  begin: one Date,
-//  end: one Date,
-//  availability: Int one -> set Time
-//}
-//
+
+sig ActivityProvider {
+  activites: set Activity
+}
+
+sig Activity {
+  provider: one ActivityProvider,
+  capacity: one Int
+}
+
+sig ActivityOffer {
+  activity: one Activity,
+  begin: one Date,
+  end: one Date,
+  availability: Int one -> set Time
+}
+
 //sig ActivityReservation {
 //  offer: one ActivityOffer,
 //  client: one Client,
@@ -112,6 +112,10 @@ pred noAccountChangeExcept[t, t': Time, acc: Account] {
     a.balance.t' = a.balance.t
 }
 
+pred noOfferAvailChangeExcept[t, t': Time, off: ActivityOffer] {
+  all o: ActivityOffer - off | o.availability.t' = o.availability.t
+}
+
 // Main Ops
 
 pred openAccount[t, t': Time, acc: Account, cli: Client, bk: Bank] {
@@ -141,6 +145,21 @@ pred clientDeposit[t, t': Time, acc: Account, amt: Int] {
   // frame cond
   noOpenChangeExcept[t, t', none] // 9
   noAccountChangeExcept[t, t', acc]
+}
+
+pred makeActivityOffer[t, t': Time, off: ActivityOffer, act: Activity,
+                       b: Date, e: Date, avail: Int] {
+  // pre cond
+  lt[b, e]
+  act.capacity > 0
+  avail >= 0
+  avail <= act.capacity
+  // post cond
+  act = off.activity
+  b = off.begin
+  e = off.end
+  // frame cond
+  noOfferAvailChangeExcept[t, t', off]
 }
 
 // Asserts ---------------------------------------------------------------------
@@ -190,6 +209,15 @@ assert openAccountsRemainOpen {
     accountIsOpen[t, acc] && accountIsOpen[t', acc]
 }
 check openAccountsRemainOpen // 9
+
+// makeActivityOffer
+assert activityCapacityIsPositive {
+  all t, t': Time, off: ActivityOffer, b: Date, e: Date,
+      avail: Int | no act: Activity |
+    makeActivityOffer[t, t', off, act, b, e, avail] && act.capacity <= 0
+}
+check activityCapacityIsPositive // 15
+
 
 // Transitions -----------------------------------------------------------------
 
