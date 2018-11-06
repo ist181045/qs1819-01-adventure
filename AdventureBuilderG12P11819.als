@@ -15,14 +15,13 @@ sig Broker extends Client {}
 
 
 sig Bank {
-  accounts: set Account
+  accounts: set Account -> Time
 }
 
 sig Account {
-  bank: one Bank,
-  client: one Client,
-  balance: Int one -> set Time,
-  isOpen: set Time
+  bank: one Bank, // 4
+  client: one Client, // 3
+  balance: Int one -> Time
 }
 
 
@@ -99,17 +98,15 @@ sig ActivityOffer {
 // Auxiliary
 
 pred accountIsOpen[t: Time, acc: Account] {
-  acc in isOpen.t
+  acc in Bank.accounts.t
 }
 
 pred noOpenChangeExcept[t, t': Time, acc: Account] {
-  isOpen.t' = isOpen.t + acc
+  Bank.accounts.t' = Bank.accounts.t + acc
 }
 
 pred noAccountChangeExcept[t, t': Time, acc: Account] {
-  all a: Account - acc |
-    a in isOpen.t' => a in isOpen.t &&
-    a.balance.t' = a.balance.t
+  all a: Account - acc | a.balance.t' = a.balance.t
 }
 
 pred noOfferAvailChangeExcept[t, t': Time, off: ActivityOffer] {
@@ -118,14 +115,11 @@ pred noOfferAvailChangeExcept[t, t': Time, off: ActivityOffer] {
 
 // Main Ops
 
-pred openAccount[t, t': Time, acc: Account, cli: Client, bk: Bank] {
+pred openAccount[t, t': Time, acc: Account] {
   // pre cond
-  acc not in isOpen.t // 1, 2
+  not accountIsOpen[t, acc] // 1
   // post cond
-  cli = acc.client // 3
-  bk = acc.bank // 4
-  acc in bk.accounts
-  acc in isOpen.t'
+  accountIsOpen[t', acc] // 2
   acc.balance.t' = 0
   // frame cond
   noOpenChangeExcept[t, t', acc]
@@ -167,25 +161,25 @@ assert canOpenAnyUnopenedAccount {
   all t, t': Time, cli: Client, bk: Bank | all acc: Account |
     openAccount[t, t', acc, cli, bk] => not accountIsOpen[t, acc]
 }
-check canOpenAnyUnopenedAccount // 1
+check canOpenAnyUnopenedAccount for 2 but 1 Account // 1
 
-assert cantOpenAccountAgain {
-  all t, t': Time, cli: Client, bk: Bank | no acc: Account |
-    accountIsOpen[t, acc] && openAccount[t, t', acc, cli, bk]
+assert cannotOpenAccountAgain {
+  all t, t', t'': Time, acc: Account |
+    openAccount[t, t', acc] && openAccount[t', t'', acc] => t'' = t'
 }
-check cantOpenAccountAgain // 2
+check cannotOpenAccountAgain for 3 but 1 Account // 2
 
-assert eachAccountHasExactlyOneClient {
+assert eachOpenAccountBelongsToExactlyOneClient {
   all t: Time, acc: Account |
     accountIsOpen[t, acc] => one acc.client
 }
-check eachAccountHasExactlyOneClient // 3
+check eachOpenAccountBelongsToExactlyOneClient // 3
 
-assert eachAccountHasExactlyOneBank {
+assert eachOpenAccountBelongsToExactlyOneBank {
   all t: Time, acc: Account |
     accountIsOpen[t, acc] => one acc.bank
 }
-check eachAccountHasExactlyOneBank // 4
+check eachOpenAccountBelongsToExactlyOneBank // 4
 
 // clientDeposit
 assert canOnlyDepositOnOpenAccounts {
