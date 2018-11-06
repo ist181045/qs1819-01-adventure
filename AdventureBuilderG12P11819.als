@@ -150,10 +150,9 @@ pred clientDeposit[t, t': Time, acc: Account, amt: Int] {
 pred makeActivityOffer[t, t': Time, off: ActivityOffer, act: Activity,
                        b: Date, e: Date, avail: Int] {
   // pre cond
-  lt[b, e]
-  act.capacity > 0
-  avail >= 0
-  avail <= act.capacity
+  lt[b, e] // 16
+  act.capacity > 0 // 15
+  0 <= avail && avail <= act.capacity // 17
   // post cond
   act = off.activity
   b = off.begin
@@ -212,13 +211,26 @@ check openAccountsRemainOpen // 9
 
 // makeActivityOffer
 assert activityCapacityIsPositive {
-  all t, t': Time, off: ActivityOffer, b: Date, e: Date,
-      avail: Int | no act: Activity |
+  all t, t': Time, off: ActivityOffer, b, e: Date, avail: Int |
+      no act: Activity |
     makeActivityOffer[t, t', off, act, b, e, avail] && act.capacity <= 0
 }
 check activityCapacityIsPositive // 15
 
+assert arrivalCantBeBeforeDeparture {
+  all t, t': Time, off: ActivityOffer, act: Activity, avail: Int |
+      no b, e: Date |
+    makeActivityOffer[t, t', off, act, b, e, avail] && lt[e, b]
+}
+check arrivalCantBeBeforeDeparture // 16
 
+assert offerAvailabilityIsInbounds {
+  all t, t': Time, off: ActivityOffer, act: Activity, b, e: Date |
+      no avail: Int |
+    makeActivityOffer[t, t', off, act, b, e, avail] &&
+    (avail < 0 || avail > act.capacity)
+}
+check offerAvailabilityIsInbounds // 17
 // Transitions -----------------------------------------------------------------
 
 pred init[t: Time] {
