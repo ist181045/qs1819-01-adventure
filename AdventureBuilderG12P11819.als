@@ -98,66 +98,110 @@ sig Account {
 // Operations ------------------------------------------------------------------
 // Auxiliary
 
-pred noOpenChange[t, t': Time] {
-  isOpen.t = isOpen.t'
+pred accountIsOpen[t: Time, acc: Account] {
+  acc in isOpen.t
+}
+
+pred noOpenChangeExcept[t, t': Time, acc: Account] {
+  isOpen.t' = isOpen.t + acc
 }
 
 pred noAccountChangeExcept[t, t': Time, acc: Account] {
-  all a: Account - acc | a in isOpen.t' iff a in isOpen.t
+  all a: Account - acc |
+    a in isOpen.t' => a in isOpen.t &&
+    a.balance.t' = a.balance.t
 }
 
 // Main Ops
 
-pred openAccount[t, t': Time, acc: Account, c: Client, b: Bank] {
+pred openAccount[t, t': Time, acc: Account, cli: Client, bk: Bank] {
   // pre cond
   acc not in isOpen.t // 1, 2
   // post cond
-  c = acc.client // 3
-  b = acc.bank // 4
-  acc in b.accounts
+  cli = acc.client // 3
+  bk = acc.bank // 4
+  acc in bk.accounts
   acc in isOpen.t'
   acc.balance.t' = 0
   // frame cond
+  noOpenChangeExcept[t, t', acc]
+  noAccountChangeExcept[t, t', acc]
+}
+
+pred clientDeposit[t, t': Time, acc: Account, amt: Int] {
+  // pre cond
+  accountIsOpen[t, acc] // 7
+  let result = plus[acc.balance.t, amt] | {
+    // pre cond
+    result >= 0 // 8
+    // post cond
+    acc.balance.t' != acc.balance.t
+    acc.balance.t' = result
+  }
+  // frame cond
+  noOpenChangeExcept[t, t', none] // 9
   noAccountChangeExcept[t, t', acc]
 }
 
 // Asserts ---------------------------------------------------------------------
-
+// openAccount
 assert canOpenAnyUnopenedAccount {
-  all t, t': Time | all acc: Account, c: Client, b: Bank |
-    lt[t, t'] && acc not in isOpen.t && openAccount[t, t', acc, c, b]
+  all t, t': Time, cli: Client, bk: Bank | all acc: Account |
+    not accountIsOpen[t, acc] && openAccount[t, t', acc, cli, bk]
 }
 check canOpenAnyUnopenedAccount // 1
 
 assert cantOpenAccountAgain {
-  all t, t': Time | all c: Client, b: Bank | no acc: Account |
-    lt[t, t'] && acc in isOpen.t && openAccount[t, t', acc, c, b]
+  all t, t': Time, cli: Client, bk: Bank | no acc: Account |
+    accountIsOpen[t, acc] && openAccount[t, t', acc, cli, bk]
 }
 check cantOpenAccountAgain // 2
 
 assert eachAccountHasExactlyOneClient {
   all t: Time, acc: Account |
-    acc in isOpen.t => one acc.client
+    accountIsOpen[t, acc] => one acc.client
 }
 check eachAccountHasExactlyOneClient // 3
 
 assert eachAccountHasExactlyOneBank {
   all t: Time, acc: Account |
-    acc in isOpen.t => one acc.bank
+    accountIsOpen[t, acc] => one acc.bank
 }
 check eachAccountHasExactlyOneBank // 4
 
+// clientDeposit
+assert canOnlyDepositOnOpenAccounts {
+  all t, t': Time, acc: Account, amt: Int |
+    clientDeposit[t, t', acc, amt] => accountIsOpen[t, acc]
+}
+
+check canOnlyDepositOnOpenAccounts // 7
+
+assert balanceIsNeverNegative {
+  all t: Time, acc: Account |
+    accountIsOpen[t, acc] => acc.balance.t >= 0
+}
+
+check balanceIsNeverNegative // 8
+
+assert openAccountsRemainOpen {
+  all t, t': Time, acc: Account, amt: Int |
+    clientDeposit[t, t', acc, amt] =>
+    accountIsOpen[t, acc] && accountIsOpen[t', acc]
+}
+check openAccountsRemainOpen // 9
 
 // Transitions -----------------------------------------------------------------
+
+pred init[t: Time] {
+  no isOpen.t
+}
 
 fact trans {
   init [T /first]
   all t: Time - T /last | let t' = t.next |
-    some acc: Account, c: Client, b: Bank {
-      openAccount[t, t', acc, c, b]
-  }
-}
-
-pred init[t: Time] {
-  no isOpen.t
+    some acc: Account, cli: Client, bk: Bank, amt: Int {
+      openAccount[t, t', acc, cli, bk] or
+      clientDeposit[t, t', acc, amt]
+    }
 }
