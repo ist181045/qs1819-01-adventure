@@ -187,21 +187,21 @@ assert canOnlyDepositOnOpenAccounts {
     clientDeposit[t, t', acc, amt] => accountIsOpen[t, acc]
 }
 
-check canOnlyDepositOnOpenAccounts // 7
+check canOnlyDepositOnOpenAccounts for 3 but 1 Account // 7
 
 assert balanceIsNeverNegative {
   all t: Time, acc: Account |
     accountIsOpen[t, acc] => acc.balance.t >= 0
 }
 
-check balanceIsNeverNegative // 8
+check balanceIsNeverNegative for 3 but 1 Account // 8
 
 assert openAccountsRemainOpen {
   all t, t': Time, acc: Account, amt: Int |
     clientDeposit[t, t', acc, amt] =>
     accountIsOpen[t, acc] && accountIsOpen[t', acc]
 }
-check openAccountsRemainOpen // 9
+check openAccountsRemainOpen for 3 but 1 Account // 9
 
 // makeActivityOffer
 assert activityCapacityIsPositive {
