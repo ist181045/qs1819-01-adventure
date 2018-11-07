@@ -33,16 +33,16 @@ sig Account {
 
 //
 //sig Hotel {
-//  rooms: set Room
+//  rooms: set Room // 10
 //}
 //
 //sig Room {
-//  hotel: one Hotel,
-//  type: one RoomType
+//  hotel: one Hotel, // 11
+//  type: one RoomType // 12
 //}
 //
-//abstract sig RoomType {}
-//one sig Single, Double extends RoomType {}
+//abstract sig RoomType {} // 12
+//one sig Single, Double extends RoomType {} // 12
 //
 //sig RoomReservation {
 //  room: one Room,
@@ -86,10 +86,10 @@ sig ActivityReservation {
 //  cost: one Int,
 //  clientAcc: one Account,
 //  brokerAcc: one Account,
-//  state: one AdventureState
+//  state: one AdventureState // 21
 //}
 //
-//abstract sig AdventureState {}
+//abstract sig AdventureState {} // 21
 //one sig Initial, Payed, Confirmed extends AdventureState {}
 //
 //sig Invoice {
@@ -142,7 +142,6 @@ pred noActResChangeExcept[t, t': Time, res: ActivityReservation] {
 
 pred reserveActivity[t, t': Time, res: ActivityReservation] {
   // pre cond
-  t' = t.next
   not activityResExists[t, res]
   offerExists[t, res.offer]
   res.people > 0 // 18
@@ -153,12 +152,32 @@ pred reserveActivity[t, t': Time, res: ActivityReservation] {
       result = minus[avail, res.people] | // 19
     result >= 0 &&
     res.offer.availability.t' = result
+  // post/frame cond
+  AdventureBuilder.actRes.t' = AdventureBuilder.actRes.t + res
   // frame cond
   noOpenChangeExcept[t, t', none]
   noAccountChangeExcept[t, t', none]
   noOffersChangeExcept[t, t', none]
   noOfferAvailChangeExcept[t, t', res.offer]
-  noActResChangeExcept[t, t', res]
+}
+
+pred cancelActivityReservation[t, t': Time, res: ActivityReservation] {
+  // pre cond
+  activityResExists[t, res]
+  offerExists[t, res.offer]
+  // post cond
+  not activityResExists[t', res]
+  offerExists[t', res.offer]
+  let avail = res.offer.availability.t,
+      result = plus[avail, res.people] |
+    res.offer.availability.t' = result
+  // post/frame
+  AdventureBuilder.actRes.t' = AdventureBuilder.actRes.t - res
+  // frame cond
+  noOpenChangeExcept[t, t', none]
+  noAccountChangeExcept[t, t', none]
+  noOffersChangeExcept[t, t', none]
+  noOfferAvailChangeExcept[t, t', res.offer]
 }
 
 // Main Ops
@@ -302,10 +321,9 @@ pred init[t: Time] {
 fact traces {
   init [T/first]
   all t: Time - T/last | let t' = t.next |
-    some acc: Account, off: ActivityOffer, actRes: ActivityReservation, avail, amt: Int {
+    some acc: Account, off: ActivityOffer, avail, amt: Int {
       openAccount[t, t', acc] or
       clientDeposit[t, t', acc, amt] or
-      makeActivityOffer[t, t', off, avail] or
-      reserveActivity[t, t', actRes]
+      makeActivityOffer[t, t', off, avail]
     }
 }
