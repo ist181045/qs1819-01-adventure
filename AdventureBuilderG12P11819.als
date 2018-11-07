@@ -4,6 +4,7 @@
  * 81045 - Rui Ventura
  * 81728 - Madalena Assembleia
  */
+open util/boolean
 open util/ordering [Date] as D
 open util/ordering [Time] as T
 
@@ -11,7 +12,8 @@ sig Date, Time {}
 
 one sig AdventureBuilder {
   accounts: set Account -> Time,
-  offers: set ActivityOffer -> Time
+  offers: set ActivityOffer -> Time,
+  actRes: set ActivityReservation -> Time
 }
 
 sig Client {}
@@ -45,7 +47,8 @@ sig Account {
 //sig RoomReservation {
 //  room: one Room,
 //  client: one Client,
-//  arrival, departure: one Date
+//  arrival, departure: one Date,
+//  cancelled: Bool one -> Time
 //}
 //
 
@@ -67,12 +70,12 @@ sig ActivityOffer {
   availability: Int one -> set Time
 }
 
-//sig ActivityReservation {
-//  offer: one ActivityOffer,
-//  client: one Client,
-//  people: one Int
-//}
-//
+sig ActivityReservation {
+  offer: one ActivityOffer,
+  client: one Client,
+  people: one Int
+}
+
 //
 //sig Adventure {
 //  client: one Client,
@@ -127,6 +130,37 @@ pred noOffersChangeExcept[t, t': Time, off: ActivityOffer] {
   AdventureBuilder.offers.t' = AdventureBuilder.offers.t + off
 }
 
+pred activityResExists[t: Time, res: ActivityReservation] {
+  res in AdventureBuilder.actRes.t
+}
+
+pred noActResChangeExcept[t, t': Time, res: ActivityReservation] {
+  AdventureBuilder.actRes.t' = AdventureBuilder.actRes.t + res
+}
+
+// Helper Ops
+
+pred reserveActivity[t, t': Time, res: ActivityReservation] {
+  // pre cond
+  t' = t.next
+  not activityResExists[t, res]
+  offerExists[t, res.offer]
+  res.people > 0 // 18
+  // post cond
+  activityResExists[t', res]
+  offerExists[t', res.offer]
+  let avail = res.offer.availability.t,
+      result = minus[avail, res.people] | // 19
+    result >= 0 &&
+    res.offer.availability.t' = result
+  // frame cond
+  noOpenChangeExcept[t, t', none]
+  noAccountChangeExcept[t, t', none]
+  noOffersChangeExcept[t, t', none]
+  noOfferAvailChangeExcept[t, t', res.offer]
+  noActResChangeExcept[t, t', res]
+}
+
 // Main Ops
 
 pred openAccount[t, t': Time, acc: Account] {
@@ -140,6 +174,7 @@ pred openAccount[t, t': Time, acc: Account] {
   noAccountChangeExcept[t, t', acc]
   noOffersChangeExcept[t, t', none]
   noOfferAvailChangeExcept[t, t', none]
+  noActResChangeExcept[t, t', none]
 }
 
 pred clientDeposit[t, t': Time, acc: Account, amt: Int] {
@@ -156,6 +191,7 @@ pred clientDeposit[t, t': Time, acc: Account, amt: Int] {
   noAccountChangeExcept[t, t', acc]
   noOffersChangeExcept[t, t', none]
   noOfferAvailChangeExcept[t, t', none]
+  noActResChangeExcept[t, t', none]
 }
 
 pred makeActivityOffer[t, t': Time, off: ActivityOffer, avail: Int] {
@@ -163,7 +199,7 @@ pred makeActivityOffer[t, t': Time, off: ActivityOffer, avail: Int] {
   not offerExists[t, off]
   lt[off.begin, off.end] // 16
   let cap = off.activity.capacity |
-    cap > 0 &&
+    cap > 0 && // 15
     (0 <= avail && avail <= cap) // 17
   // post cond
   offerExists[t', off]
@@ -173,6 +209,7 @@ pred makeActivityOffer[t, t': Time, off: ActivityOffer, avail: Int] {
   noAccountChangeExcept[t, t', none]
   noOffersChangeExcept[t, t', off]
   noOfferAvailChangeExcept[t, t', off]
+  noActResChangeExcept[t, t', none]
 }
 
 // Asserts ---------------------------------------------------------------------
@@ -187,7 +224,7 @@ assert cannotOpenAccountAgain {
   all t, t', t'': Time, acc: Account |
     openAccount[t, t', acc] && openAccount[t', t'', acc] => t'' = t'
 }
-check cannotOpenAccountAgain for 3 but 1 Account // 2
+check cannotOpenAccountAgain // 2
 
 assert eachOpenAccountBelongsToExactlyOneClient {
   all t: Time, acc: Account |
@@ -207,21 +244,21 @@ assert canOnlyDepositOnOpenAccounts {
     clientDeposit[t, t', acc, amt] => accountIsOpen[t, acc]
 }
 
-check canOnlyDepositOnOpenAccounts for 3 but 1 Account // 7
+check canOnlyDepositOnOpenAccounts // 7
 
 assert balanceIsNeverNegative {
   all t: Time | no acc: Account |
     accountIsOpen[t, acc] && acc.balance.t < 0
 }
 
-check balanceIsNeverNegative for 3 but 1 Account // 8
+check balanceIsNeverNegative // 8
 
 assert openAccountsRemainOpen {
   all t: Time, acc: Account, amt: Int | let t' = t.next |
     clientDeposit[t, t', acc, amt] =>
     accountIsOpen[t, acc] && accountIsOpen[t', acc]
 }
-check openAccountsRemainOpen for 3 but 1 Account // 9
+check openAccountsRemainOpen // 9
 
 // makeActivityOffer
 assert activityCapacityIsPositive {
@@ -239,19 +276,36 @@ assert offerAvailabilityIsInbounds {
     (0 <= avail && avail <= off.activity.capacity)
 }
 check offerAvailabilityIsInbounds // 17
+
+// reserveActivity
+assert activityIsForSomePeople {
+  all t: Time, res: AdventureBuilder.actRes.t | res.people > 0
+}
+check activityIsForSomePeople // 18
+
+assert offerAvailChangesUponReserv {
+  all t: Time, res: AdventureBuilder.actRes.t |
+      let t' = t.next, avail = res.offer.availability.t |
+    reserveActivity[t, t', res] =>
+    res.offer.availability.t' = minus[avail, res.people]
+}
+check offerAvailChangesUponReserv // 19
+
 // Transitions -----------------------------------------------------------------
 
 pred init[t: Time] {
   no AdventureBuilder.(accounts +
-                       offers).t
+                       offers +
+                       actRes).t
 }
 
 fact traces {
   init [T/first]
   all t: Time - T/last | let t' = t.next |
-    some acc: Account, off: ActivityOffer, avail, amt: Int {
+    some acc: Account, off: ActivityOffer, actRes: ActivityReservation, avail, amt: Int {
       openAccount[t, t', acc] or
       clientDeposit[t, t', acc, amt] or
-      makeActivityOffer[t, t', off, avail]
+      makeActivityOffer[t, t', off, avail] or
+      reserveActivity[t, t', actRes]
     }
 }
