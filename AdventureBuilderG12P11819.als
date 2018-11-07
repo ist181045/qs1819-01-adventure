@@ -10,7 +10,8 @@ open util/ordering [Time] as T
 sig Date, Time {}
 
 one sig AdventureBuilder {
-  accounts: Account -> Time
+  accounts: set Account -> Time,
+  offers: set ActivityOffer -> Time
 }
 
 sig Client {}
@@ -28,7 +29,7 @@ sig Account {
   balance: Int one -> Time
 }
 
-
+//
 //sig Hotel {
 //  rooms: set Room
 //}
@@ -44,26 +45,28 @@ sig Account {
 //sig RoomReservation {
 //  room: one Room,
 //  client: one Client,
-//  arrival: one Date,
-//  departure: one Date
+//  arrival, departure: one Date
 //}
 //
-//
-//sig ActivityProvider {
-//  activities: set Activity
-//}
-//
-//sig Activity {
-//  provider: one ActivityProvider,
-//  capacity: one Int
-//}
-//
-//sig ActivityOffer {
-//  activity: one Activity,
-//  begin, end: one Date,
-//  availability: Int one -> set Time
-//}
-//
+
+sig ActivityProvider {
+  activities: set Activity
+}
+
+sig Activity {
+  provider: one ActivityProvider,
+  capacity: one Int
+}{
+  // HACK: Cheesy way of ensuring activities' cap is positive
+  capacity > 0 // 15
+}
+
+sig ActivityOffer {
+  activity: one Activity,
+  begin, end: one Date,
+  availability: Int one -> set Time
+}
+
 //sig ActivityReservation {
 //  offer: one ActivityOffer,
 //  client: one Client,
@@ -112,10 +115,17 @@ pred noAccountChangeExcept[t, t': Time, acc: Account] {
   all a: Account - acc | a.balance.t' = a.balance.t
 }
 
-//pred noOffersChangeExcept[t, t': Time, off: ActivityOffer] {
-//  all o: ActivityOffer - off |
-//    o.availability.t' = o.availability.t
-//}
+pred offerExists[t: Time, off: ActivityOffer] {
+  off in AdventureBuilder.offers.t
+}
+
+pred noOfferAvailChangeExcept[t, t': Time, off: ActivityOffer] {
+  all o: ActivityOffer - off | o.availability.t' = o.availability.t
+}
+
+pred noOffersChangeExcept[t, t': Time, off: ActivityOffer] {
+  AdventureBuilder.offers.t' = AdventureBuilder.offers.t + off
+}
 
 // Main Ops
 
@@ -128,6 +138,8 @@ pred openAccount[t, t': Time, acc: Account] {
   // frame cond
   noOpenChangeExcept[t, t', acc]
   noAccountChangeExcept[t, t', acc]
+  noOffersChangeExcept[t, t', none]
+  noOfferAvailChangeExcept[t, t', none]
 }
 
 pred clientDeposit[t, t': Time, acc: Account, amt: Int] {
@@ -142,28 +154,32 @@ pred clientDeposit[t, t': Time, acc: Account, amt: Int] {
   // frame cond
   noOpenChangeExcept[t, t', none] // 9
   noAccountChangeExcept[t, t', acc]
+  noOffersChangeExcept[t, t', none]
+  noOfferAvailChangeExcept[t, t', none]
 }
 
-//pred makeActivityOffer[t, t': Time, off: ActivityOffer, avail: Int] {
-//  // pre cond
-//  lt[off.begin, off.end] // 16
-//    off.activity.capacity > 0
-//    avail >= 0
-//    avail <= off.activity.capacity
-//    //0 <= avail && avail <= act.capacity // 17
-//  // post cond
-//  off.availability.t' = avail
-//  // frame cond
-//  noOpenChangeExcept[t, t', none]
-//  noAccountChangeExcept[t, t', none]
-//  noOffersChangeExcept[t, t', off]
-//}
+pred makeActivityOffer[t, t': Time, off: ActivityOffer, avail: Int] {
+  // pre cond
+  not offerExists[t, off]
+  lt[off.begin, off.end] // 16
+  let cap = off.activity.capacity |
+    cap > 0 &&
+    (0 <= avail && avail <= cap) // 17
+  // post cond
+  offerExists[t', off]
+  off.availability.t' = avail
+  // frame cond
+  noOpenChangeExcept[t, t', none]
+  noAccountChangeExcept[t, t', none]
+  noOffersChangeExcept[t, t', off]
+  noOfferAvailChangeExcept[t, t', off]
+}
 
 // Asserts ---------------------------------------------------------------------
 // openAccount
 assert canOpenAnyUnopenedAccount {
-  all t: Time, acc: Account | let t' = t.next |
-    openAccount[t, t', acc] iff not accountIsOpen[t, acc]
+  all t: Time | no acc: Account | let t' = t.next |
+    accountIsOpen[t, acc] && openAccount[t, t', acc]
 }
 check canOpenAnyUnopenedAccount for 2 but 1 Account // 1
 
@@ -208,34 +224,34 @@ assert openAccountsRemainOpen {
 check openAccountsRemainOpen for 3 but 1 Account // 9
 
 // makeActivityOffer
-//assert activityCapacityIsPositive {
-//  all act: Activity | act.capacity >= 0
-//}
-//check activityCapacityIsPositive // 15
-//
-//assert arrivalCantBeBeforeDeparture {
-//  all off: ActivityOffer |
-//    lt[off.begin, off.end]
-//}
-//check arrivalCantBeBeforeDeparture // 16
-//
-//assert offerAvailabilityIsInbounds {
-//  all t: Time, off: ActivityOffer | let avail = off.availability.t |
-//    (0 <= avail && avail <= off.activity.capacity)
-//}
-//check offerAvailabilityIsInbounds // 17
+assert activityCapacityIsPositive {
+  all act: Activity | act.capacity > 0
+}
+check activityCapacityIsPositive // 15
+
+assert arrivalCantBeBeforeDeparture {
+  all t: Time, off: AdventureBuilder.offers.t | lt[off.begin, off.end]
+}
+check arrivalCantBeBeforeDeparture // 16
+
+assert offerAvailabilityIsInbounds {
+  all t: Time, off: AdventureBuilder.offers.t | let avail = off.availability.t |
+    (0 <= avail && avail <= off.activity.capacity)
+}
+check offerAvailabilityIsInbounds // 17
 // Transitions -----------------------------------------------------------------
 
 pred init[t: Time] {
-  no AdventureBuilder.accounts.t
+  no AdventureBuilder.(accounts +
+                       offers).t
 }
 
 fact traces {
-  init [T /first]
-  all t: Time - T /last | let t' = t.next |
-    some acc: Account, /*off: ActivityOffer, avail,*/ amt: Int {
+  init [T/first]
+  all t: Time - T/last | let t' = t.next |
+    some acc: Account, off: ActivityOffer, avail, amt: Int {
       openAccount[t, t', acc] or
-      clientDeposit[t, t', acc, amt] //or
-      //makeActivityOffer[t, t', off, avail]
+      clientDeposit[t, t', acc, amt] or
+      makeActivityOffer[t, t', off, avail]
     }
 }
