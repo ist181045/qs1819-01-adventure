@@ -42,8 +42,8 @@ sig Room {
   type: one RoomType // 12
 }
 
-abstract sig RoomType {} // 12
-one sig Single, Double extends RoomType {} // 12
+abstract sig RoomType {}
+one sig Single, Double extends RoomType {}
 
 sig RoomReservation {
   room: one Room,
@@ -192,6 +192,8 @@ pred noAdvStateChangeExcept[t, t': Time, adv: Adventure] {
 
 // Helper Ops
 
+//TODO: deposit (needed?)
+
 pred reserveActivity[t, t': Time, res: ActivityReservation] {
   // pre cond
   not activityResExists[t, res]
@@ -242,12 +244,15 @@ pred reserveRooms[t, t': Time, res: RoomReservation] {
 pred cancelRoomReservations[t, t': Time, res: RoomReservation] {
   // pre cond
   roomResExists[t, res]
-
   // post cond
   not roomResExists[t', res]
   // frame cond
   noRoomResCancelledExcept[t, t', res]
 }
+
+//TODO: makeInvoice
+
+//TODO: cancelInvoice
 
 // Main Ops
 
@@ -272,12 +277,11 @@ pred openAccount[t, t': Time, acc: Account] {
 pred clientDeposit[t, t': Time, acc: Account, amt: Int] {
   // pre cond
   accountIsOpen[t, acc] // 7
-  let result = plus[acc.balance.t, amt] {
+  let result = plus[acc.balance.t, amt] |
   // pre cond
-    result >= 0 // 8
+    result > 0 && // 8
   // post cond
     acc.balance.t' = result
-  }
   // frame cond
   noAccountsOpenExcept[t, t', none] // 9
   noAccBalanceChangeExcept[t, t', acc]
@@ -338,8 +342,15 @@ pred createAdventure[t, t': Time, adv: Adventure] {
   noAdvStateChangeExcept[t, t', adv]
 }
 
+//TODO: payAdventure
+
+//TODO: cancelAdventure
+
+//TODO: confirmAdventure
+
+//TODO: makeAnnualTaxRed
+
 // Asserts ---------------------------------------------------------------------
-// openAccount
 assert canOpenAnyUnopenedAccount {
   // if an account can be opened, it must have been closed
   all t, t', t'': Time, acc: Account |
@@ -368,7 +379,10 @@ assert eachOpenAccountBelongsToExactlyOneBank {
 }
 check eachOpenAccountBelongsToExactlyOneBank for 3 // 4
 
-// clientDeposit
+//ASK 5: A bank can have several accounts
+
+//ASK 6: A client can have several OPEN accounts
+
 assert canOnlyDepositInOpenAccounts {
   all t, t': Time, acc: Account, amt: Int |
     clientDeposit[t, t', acc, amt] => accountIsOpen[t, acc]
@@ -387,14 +401,20 @@ assert openAccountsRemainOpen {
 }
 check openAccountsRemainOpen // 9
 
-// reserveRooms
+//ASK 10: A hotel can have several rooms
+
+//ASK 11: Each hotel room belongs to exactly one hotel.
+
+//ASK 12: Each hotel room is either single or double
+
 assert roomResArrivalLessThanDeparture {
   all t: Time, res: RoomReservation |
     roomResExists[t, res] => lt[res.arrival, res.departure]
 }
 check roomResArrivalLessThanDeparture for 5 // 13
 
-// makeActivityOffer
+//TODO 14: Room resrvations for the same room must not overlap
+
 assert activityCapacityIsPositive {
   // bit of fun w/ set comprehensions
   all t: Time, off: ActivityOffer |
@@ -415,7 +435,6 @@ assert offerAvailabilityIsInbounds {
 }
 check offerAvailabilityIsInbounds // 17
 
-// reserveActivity
 assert activityIsForSomePeople {
   all t: Time, res: AdventureBuilder.actRes.t | res.people > 0
 }
@@ -429,7 +448,14 @@ assert offerAvailChangesUponReserv {
 }
 check offerAvailChangesUponReserv // 19
 
-// createAdventure
+assert offersRemain {
+  all t, t': Time, off: ActivityOffer |
+    lt[t, t'] && offerExists[t, off] => offerExists[t', off]
+}
+check offersRemain // 20
+
+//ASK 21: Each adventure in AB is in one single state
+
 assert adventureIsForSomePeople {
   all t: Time, adv: AdventureBuilder.adventures.t | adv.people > 0
 }
@@ -449,6 +475,48 @@ assert advRoomResAreInSameHotel {
     h = h'
 }
 check advRoomResAreInSameHotel for 5 // 24
+
+//TODO 25: For each adventure in AB, #people that the room reservs are for
+//         matches number of people doing the activity
+
+//TODO 26: It is only possible to pay for existing adventures
+
+//TODO 27: For each adventure in AB, account used for paying belongs to the
+//         client the adventure was created for
+
+//TODO 28: For each adventure in AB, the account of the broker who arranged the
+//         activity is credited
+
+// cancelAdventure
+//TODO 29: Only adventures in PayedState can be cancelled
+
+//TODO 30: Activity reservations in AB cannot disappear, unless an adventure is
+//         cancelled
+
+//TODO 31: If adventure is payed, must have been created
+
+//TODO 32: If adventure is confirmed, must have been payed for
+
+//TODO 33: Clients w/ invoices in AB have at least an open bank account
+
+//TODO 34: Invoices in AB can disappear
+
+//TODO 35: If an adventure is payed, then the corresp. invoice is created
+//ASK How are these different
+//TODO 36: An invoice cannot be created unless payment happened
+
+//TODO 37: Tax on purchase depends on the kind of purchase and the price.
+//         tax >= 0 always
+
+//TODO 38: Annual tax red credits exactly one client account for each client
+//         w/ invoices in AB
+
+//TODO 39: Balances, on open accounts, cannot decrease w/ annual tax red
+
+//TODO 40: Balances, ..., can increase w/ ...
+
+//TODO 41: Client accounts for which the clients do not have invoices are not
+//         affected by tax red
 // Transitions -----------------------------------------------------------------
 
 pred init[t: Time] {
@@ -470,7 +538,7 @@ fact traces {
 }
 
 // Reachability ----------------------------------------------------------------
-run openAccount for 3 but 2 Account, 3 Bank
-run clientDeposit for 2
+run openAccount for 2
+run clientDeposit for 3
 run makeActivityOffer for 2
-run createAdventure for 5 but 2 Hotel, 2 Room
+run createAdventure for 5
