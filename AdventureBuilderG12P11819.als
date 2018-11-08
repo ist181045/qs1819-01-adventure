@@ -27,7 +27,7 @@ sig Bank {
 }
 
 sig Account {
-  bank: one Bank, // 4
+  bank: one Bank,
   client: one Client, // 3
   balance: Int one -> Time
 }
@@ -107,7 +107,7 @@ pred accountIsOpen[t: Time, acc: Account] {
   acc in AdventureBuilder.accounts.t
 }
 
-pred noAccountsChangeExcept[t, t': Time, acc: Account] {
+pred noAccountsOpenExcept[t, t': Time, acc: Account] {
   AdventureBuilder.accounts.t' = AdventureBuilder.accounts.t + acc
 }
 
@@ -129,9 +129,18 @@ pred noRoomResCancelledExcept[t, t': Time, res: RoomReservation] {
 }
 
 pred datesConflict[a, a', d, d': Date] {
-  a' = d || (a' = a || gt[a', a] && lt[a', d])
-         || (d' = d || lt[d', d] && gt[d', a])
-         || (lt[a', a] && gt[d', d])
+  // a  d/a' d' or a' d'/a  d
+  // |---|---|     |----|---|
+  a' = d || d' = a ||
+  // a/a' d  or  a   a'  d
+  //  |---|      |---|---|
+  gte[a', a] && lt[a', d] ||
+  // a   d'  d  or a  d/d'
+  // |---|---|     |---|
+  gt[d', a] && lte[d', d] ||
+  // a'  a   d   d'
+  // |---|---|---|
+  lt[a', a] && lt[d, d']
 }
 
 pred roomResConflict[r, r': RoomReservation] {
@@ -212,7 +221,7 @@ pred cancelActivityReservation[t, t': Time, res: ActivityReservation] {
   // post/frame
   noActResCancelledExcept[t, t', res]
   // frame cond
-  noAccountsChangeExcept[t, t', none]
+  noAccountsOpenExcept[t, t', none]
   noAccBalanceChangeExcept[t, t', none]
   noOffersChangeExcept[t, t', none]
   noOfferAvailChangeExcept[t, t', res.offer]
@@ -221,13 +230,23 @@ pred cancelActivityReservation[t, t': Time, res: ActivityReservation] {
 pred reserveRooms[t, t': Time, res: RoomReservation] {
   // pre cond
   not roomResExists[t, res]
-  lt[res.arrival, res.departure]
-  all r: RoomReservation - res | not roomResConflict[r, res]
-  all r: res.room | one h: Hotel | r.hotel = h && r in h.rooms // 24
+  all r: res | lt[r.arrival, r.departure] // 13
+  no r: res, r': AdventureBuilder.roomRes.t | roomResConflict[r, r'] // 14
+  hotel = ~rooms // 24
   // post cond
   roomResExists[t', res]
   // frame cond
   noRoomResMadeExcept[t, t', res]
+}
+
+pred cancelRoomReservations[t, t': Time, res: RoomReservation] {
+  // pre cond
+  roomResExists[t, res]
+
+  // post cond
+  not roomResExists[t', res]
+  // frame cond
+  noRoomResCancelledExcept[t, t', res]
 }
 
 // Main Ops
@@ -235,11 +254,12 @@ pred reserveRooms[t, t': Time, res: RoomReservation] {
 pred openAccount[t, t': Time, acc: Account] {
   // pre cond
   not accountIsOpen[t, acc] // 1
+  bank = ~accounts // 4
   // post cond
   accountIsOpen[t', acc] // 2
   acc.balance.t' = 0
   // frame cond
-  noAccountsChangeExcept[t, t', acc]
+  noAccountsOpenExcept[t, t', acc]
   noAccBalanceChangeExcept[t, t', acc]
   noOffersChangeExcept[t, t', none]
   noOfferAvailChangeExcept[t, t', none]
@@ -253,13 +273,13 @@ pred clientDeposit[t, t': Time, acc: Account, amt: Int] {
   // pre cond
   accountIsOpen[t, acc] // 7
   let result = plus[acc.balance.t, amt] {
-    // pre cond
+  // pre cond
     result >= 0 // 8
-    // post cond
+  // post cond
     acc.balance.t' = result
   }
   // frame cond
-  noAccountsChangeExcept[t, t', none] // 9
+  noAccountsOpenExcept[t, t', none] // 9
   noAccBalanceChangeExcept[t, t', acc]
   noOffersChangeExcept[t, t', none]
   noOfferAvailChangeExcept[t, t', none]
@@ -275,12 +295,12 @@ pred makeActivityOffer[t, t': Time, off: ActivityOffer, avail: Int] {
   lt[off.begin, off.end] // 16
   let cap = off.activity.capacity |
     cap > 0 && // 15
-    (0 <= avail && avail <= cap) // 17
+    0 <= avail && avail <= cap // 17
   // post cond
   offerExists[t', off]
   off.availability.t' = avail
   // frame cond
-  noAccountsChangeExcept[t, t', none]
+  noAccountsOpenExcept[t, t', none]
   noAccBalanceChangeExcept[t, t', none]
   noOffersChangeExcept[t, t', off]
   noOfferAvailChangeExcept[t, t', off]
@@ -310,7 +330,7 @@ pred createAdventure[t, t': Time, adv: Adventure] {
   reserveActivity[t, t', adv.actRes]
   reserveRooms[t, t', adv.roomRes]
   // frame cond
-  noAccountsChangeExcept[t, t', none]
+  noAccountsOpenExcept[t, t', none]
   noAccBalanceChangeExcept[t, t', none]
   noOffersChangeExcept[t, t', none]
   noOfferAvailChangeExcept[t, t', adv.actRes.offer]
@@ -321,72 +341,77 @@ pred createAdventure[t, t': Time, adv: Adventure] {
 // Asserts ---------------------------------------------------------------------
 // openAccount
 assert canOpenAnyUnopenedAccount {
-  all t: Time | no acc: Account | let t' = t.next |
-    accountIsOpen[t, acc] && openAccount[t, t', acc]
+  // if an account can be opened, it must have been closed
+  all t, t', t'': Time, acc: Account |
+    lt[t, t'] && openAccount[t', t'', acc] =>
+    not accountIsOpen[t, acc]
 }
-check canOpenAnyUnopenedAccount for 2 but 1 Account // 1
+check canOpenAnyUnopenedAccount for 3 // 1
 
 assert cannotOpenAccountAgain {
-  all t, t', t'': Time, acc: Account |
-    openAccount[t, t', acc] && openAccount[t', t'', acc] => t'' = t'
+  all t, t', t'', t''': Time | no acc: Account |
+    lt[t, t'] && lt[t', t''] && lt[t'', t'''] &&
+    openAccount[t, t', acc] && openAccount[t'', t''', acc]
 }
-check cannotOpenAccountAgain // 2
+check cannotOpenAccountAgain for 4 // 2
 
 assert eachOpenAccountBelongsToExactlyOneClient {
-  all t: Time, acc: Account |
-    accountIsOpen[t, acc] => one acc.client
+  all t: Time, acc: Account | no disj cli, cli': Client |
+    accountIsOpen[t, acc] && acc.client = cli && acc.client = cli'
 }
-check eachOpenAccountBelongsToExactlyOneClient // 3
+check eachOpenAccountBelongsToExactlyOneClient for 3 // 3
 
 assert eachOpenAccountBelongsToExactlyOneBank {
-  all t: Time, acc: Account |
-    accountIsOpen[t, acc] => one acc.bank
+  all t: Time, acc: Account, bk, bk': Bank |
+    accountIsOpen[t, acc] && acc in bk.accounts & bk'.accounts =>
+    bk = bk'
 }
-check eachOpenAccountBelongsToExactlyOneBank // 4
+check eachOpenAccountBelongsToExactlyOneBank for 3 // 4
 
 // clientDeposit
-assert canOnlyDepositOnOpenAccounts {
-  all t: Time, acc: Account, amt: Int | let t' = t.next |
+assert canOnlyDepositInOpenAccounts {
+  all t, t': Time, acc: Account, amt: Int |
     clientDeposit[t, t', acc, amt] => accountIsOpen[t, acc]
 }
-
-check canOnlyDepositOnOpenAccounts // 7
+check canOnlyDepositInOpenAccounts for 3 // 7
 
 assert balanceIsNeverNegative {
-  all t: Time | no acc: Account |
-    accountIsOpen[t, acc] && acc.balance.t < 0
+  all t: Time, acc: Account |
+    accountIsOpen[t, acc] => acc.balance.t >= 0
 }
-
-check balanceIsNeverNegative // 8
+check balanceIsNeverNegative for 3 // 8
 
 assert openAccountsRemainOpen {
-  all t: Time, acc: Account, amt: Int | let t' = t.next |
-    clientDeposit[t, t', acc, amt] =>
-    accountIsOpen[t, acc] && accountIsOpen[t', acc]
+  all t, t': Time, acc: Account |
+    lt[t, t'] && accountIsOpen[t, acc] => accountIsOpen[t', acc]
 }
 check openAccountsRemainOpen // 9
 
 // reserveRooms
 assert roomResArrivalLessThanDeparture {
-  all t: Time, res: AdventureBuilder.roomRes.t |
-    lt[res.arrival, res.departure]
+  all t: Time, res: RoomReservation |
+    roomResExists[t, res] => lt[res.arrival, res.departure]
 }
 check roomResArrivalLessThanDeparture for 5 // 13
 
 // makeActivityOffer
 assert activityCapacityIsPositive {
-  all t: Time, act: AdventureBuilder.offers.t.activity | act.capacity > 0
+  // bit of fun w/ set comprehensions
+  all t: Time, off: ActivityOffer |
+    no act: { act: off.activity | offerExists[t, off] } | act.capacity <= 0
 }
 check activityCapacityIsPositive // 15
 
 assert arrivalCantBeBeforeDeparture {
-  all t: Time, off: AdventureBuilder.offers.t | lt[off.begin, off.end]
+  all t: Time, off: ActivityOffer |
+    offerExists[t, off] => lt[off.begin, off.end]
 }
 check arrivalCantBeBeforeDeparture // 16
 
 assert offerAvailabilityIsInbounds {
-  all t: Time, off: AdventureBuilder.offers.t | let avail = off.availability.t |
-    (0 <= avail && avail <= off.activity.capacity)
+  all t: Time, off: AdventureBuilder.offers.t |
+      let avail = off.availability.t, cap = off.activity.capacity |
+    0 <= avail && avail <= cap
 }
 check offerAvailabilityIsInbounds // 17
 
@@ -397,8 +422,8 @@ assert activityIsForSomePeople {
 check activityIsForSomePeople // 18
 
 assert offerAvailChangesUponReserv {
-  all t: Time, res: AdventureBuilder.actRes.t |
-      let t' = t.next, avail = res.offer.availability.t |
+  all t, t': Time, res: AdventureBuilder.actRes.t |
+      let avail = res.offer.availability.t |
     reserveActivity[t, t', res] =>
     res.offer.availability.t' = minus[avail, res.people]
 }
@@ -406,20 +431,22 @@ check offerAvailChangesUponReserv // 19
 
 // createAdventure
 assert adventureIsForSomePeople {
-  all t: Time | no adv: AdventureBuilder.adventures.t |
-    adventureExists[t, adv] && adv.people < 1
+  all t: Time, adv: AdventureBuilder.adventures.t | adv.people > 0
 }
 check adventureIsForSomePeople for 5 // 22
 
 assert advClientIsClientOfReservations {
-  all t: Time, adv: AdventureBuilder.adventures.t |
-    adv.client = adv.roomRes.client && adv.client = adv.actRes.client
+  all t: Time, adv: Adventure, res: adv.roomRes |
+    adventureExists[t, adv] =>
+    adv.client = res.client &&
+    adv.client = adv.actRes.client
 }
 check advClientIsClientOfReservations for 5 // 23
 
 assert advRoomResAreInSameHotel {
-  all t: Time, res: AdventureBuilder.adventures.t.roomRes |
-    one h: Hotel | res.room.hotel = h
+  all t: Time, adv: Adventure, res: adv.roomRes, h, h': Hotel |
+    adventureExists[t, adv] && res.room in h.rooms & h'.rooms =>
+    h = h'
 }
 check advRoomResAreInSameHotel for 5 // 24
 // Transitions -----------------------------------------------------------------
@@ -435,10 +462,15 @@ pred init[t: Time] {
 fact traces {
   init [T/first]
   all t: Time - T/last | let t' = t.next |
-    some acc: Account, off: ActivityOffer, adv: Adventure, avail, amt: Int {
+    some acc: Account, off: ActivityOffer, adv: Adventure, avail, amt: Int |
       openAccount[t, t', acc] or
       clientDeposit[t, t', acc, amt] or
       makeActivityOffer[t, t', off, avail] or
       createAdventure[t, t', adv]
-    }
 }
+
+// Reachability ----------------------------------------------------------------
+run openAccount for 3 but 2 Account, 3 Bank
+run clientDeposit for 2
+run makeActivityOffer for 2
+run createAdventure for 5 but 2 Hotel, 2 Room
